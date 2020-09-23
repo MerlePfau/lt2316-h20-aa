@@ -39,6 +39,8 @@ class DataLoaderBase:
         # simply picks a random sample from the dataset, labels and formats it.
         # Meant to be used as a naive check to see if the data looks ok
         sentence_id = random.choice(list(self.data_df["sentence_id"].unique()))
+        #print(self.data_df.loc[self.data_df['sentence_id'] == sentence_id])
+        #print(self.ner_df.loc[self.ner_df['sentence_id'] == sentence_id])
         sample_ners = self.ner_df[self.ner_df["sentence_id"]==sentence_id]
         sample_tokens = self.data_df[self.data_df["sentence_id"]==sentence_id]
 
@@ -71,85 +73,87 @@ class DataLoader(DataLoaderBase):
     def fillout_frames(self, filename_list):
         print('reading in data...')
         #reads in all the xml files and fills the two dataframes with the corresponding values
+        #also creates mapping from tokens and ners to ids
+        
+        #initiate word and ner mapping dictionaries
+        self.id2word = {}
+        self.id2ner = {}
+        self.id2ner[0] = 'None'
+        ner_id = 1
+        word_id = 1
         i = 1
+        j = 1
+        #start reading in the files
         for filename in filename_list:
-            #get split
+            #get split from pathname
             if 'Test' in str(filename):
                 split = 'test'
             else:
                 split = 'train'
+            #access html data
             tree = ET.parse(filename)
             root = tree.getroot()
             for elem in root:
                 #get sent_id
                 sent_id = elem.get("id")
+                #get tokens from sentence
+                tokens = elem.get("text")
+                tokens_list = tokens.split(" ")
+                for token in tokens_list:
+                    token = token.replace(',','')
+                    token = token.replace('.','')
+                    #update word id dict
+                    if token not in self.id2word.values():
+                        self.id2word[word_id] = token
+                        word_id += 1
+                    char_start = tokens.find(token)
+                    char_end = char_start + len(token) - 1
+                    token_id = self.get_id(token, self.id2word)
+                    #add row in data_df for current token
+                    self.data_df.loc[i] = [sent_id, token_id, char_start, char_end, split]
+                    i += 1
                 for subelem in elem:
                     if subelem.tag == "entity":
-                        #get entity
-                        entity = subelem.get("text")
                         #get ner
                         ner = subelem.get("type")
+                        #update ner id dict
+                        if ner not in self.id2ner.values():
+                            self.id2ner[ner_id] = ner
+                            ner_id += 1
+                        label = self.get_id(ner, self.id2ner)
                         #get char_start_id and char_end_id
                         if ";" not in subelem.get("charOffset"):
                             char_start, char_end = subelem.get("charOffset").split("-")
                             char_start, char_end = int(char_start), int(char_end)
-                            self.ner_df.loc[i] = [sent_id, ner, char_start, char_end]
-                            self.data_df.loc[i] = [sent_id, entity, char_start, char_end, split]
-                            i += 1
-                        #if more than one mention of a token, split into several lines
+                            #add row in data_df for current entity
+                            self.ner_df.loc[j] = [sent_id, label, char_start, char_end]
+                            j += 1
+                        #if more than one mention of an entity, split into several lines
                         else:
                             occurences = subelem.get("charOffset").split(";")
                             for occurence in occurences:
                                 char_start, char_end = occurence.split("-")
                                 char_start, char_end = int(char_start), int(char_end)
-                                self.ner_df.loc[i] = [sent_id, ner, char_start, char_end]
-                                self.data_df.loc[i] = [sent_id, entity, char_start, char_end, split]
-                                i += 1
+                                #add row in data_df for current entity
+                                self.ner_df.loc[j] = [sent_id, label, char_start, char_end]
+                                j += 1
                                 
-           # if i > 5000:
-           #     break
+            if i > 1000:
+                break
         print('data read')                                                    
         pass
         
-    
-    def word_map_df(self):
-        print('creating word map...')
-        #maps vocabulary of entities to integers in a dictionary
-        self.id2word = {}
-        word_id = 0
-        tokens = self.data_df['token_id']
-        for token in tokens:
-            if token not in self.id2word.values():
-                self.id2word[word_id] = token
-                word_id += 1
-        #create vocabulary of all tokes
-        self.vocab = list(self.id2word.values())
-        #replace tokens with token_ids in dataframe
-        for word_id, token in self.id2word.items():
-            self.data_df.loc[self.data_df['token_id'] == token, 'token_id'] = word_id
-        print('word map done')
-        pass
-          
-      
-    def ner_map_df(self):
-        print('creating ner map...')
-        #maps labels to integers in a dictionary
-        self.id2ner = {}
-        ner_id = 1
-        tokens = self.ner_df['ner_id']
-        for token in tokens:
-            if token not in self.id2ner.values():
-                self.id2ner[ner_id] = token
-                ner_id += 1
-        for ner_id, token in self.id2ner.items():
-            self.ner_df.loc[self.ner_df['ner_id'] == token, 'ner_id'] = ner_id
-        print('ner map done')
-        pass
+        
+    def get_id(self, token, dct):
+        #takes a token and a dictionary and returns the id
+        for ids, words in dct.items():
+            if words == token:
+                return ids
     
     
     def create_val_set(self):
         print('creating validation set...')
-        #takes 25% of the training set as validation set
+        #takes 25% of the training set as the validation set
         train_len = len(self.data_df.loc[self.data_df['split'] == 'train'])
         val_len = int(train_len*0.25)
         i = 0
@@ -175,13 +179,11 @@ class DataLoader(DataLoaderBase):
         all_files = Path(data_dir)
         filename_list = [f for f in all_files.glob('**/*.xml')]
         self.fillout_frames(filename_list)
-        
-        print(self.data_df)
-        print(self.ner_df)
+        self.vocab = list(self.id2word.values())
         
         #create vocabularies
-        self.word_map_df()
-        self.ner_map_df()
+        #self.word_map_df()
+        #self.ner_map_df()
         
         #set maximum sample length
         self.max_sample_length = 50
@@ -189,8 +191,34 @@ class DataLoader(DataLoaderBase):
         #25% of train test as val set
         self.create_val_set()
         
-        self.data_df = self.data_df.sample(frac=1).reset_index(drop=True)
-        self.ner_df = self.ner_df.sample(frac=1).reset_index(drop=True)
+        #shuffle
+        #self.data_df = self.data_df.sample(frac=1).reset_index(drop=True)
+        #self.ner_df = self.ner_df.sample(frac=1).reset_index(drop=True)
+                
+        print('data processed')
+        pass
+
+
+    def get_labels_from_ner_df(self, df):
+        #takes a dataframe and returns a list of all ner labels (devidable by the max_sample_length)
+        lst = []
+        for i in range(1,len(df)):
+            instance = df.iloc[i]
+            if ((self.ner_df['sentence_id'] == instance['sentence_id']) & (self.ner_df['char_start_id'] == instance['char_start_id']) & (self.ner_df['char_end_id'] == instance['char_end_id'])).any():                         
+                line_label = self.ner_df.loc[(self.ner_df['sentence_id'] == instance['sentence_id']) & (self.ner_df['char_start_id'] == instance['char_start_id']) & (self.ner_df['char_end_id'] == instance['char_end_id'])]
+                label = line_label.iloc[0]['ner_id']
+            else:
+                label = 0
+            lst.append(label)
+        lst = lst[:(len(lst)-len(lst)%self.max_sample_length)]
+        return lst, len(lst)
+    
+    
+    def get_y(self):
+        # Should return a tensor containing the ner labels for all samples in each split.
+        # the tensors should have the following following dimensions:
+        # (NUMBER_SAMPLES, MAX_SAMPLE_LENGTH)
+        # NOTE! the labels for each split should be on the GPU
         
         #prepare data for plotting and labeling
         #split the data_df into three sub df: train, val and test
@@ -211,34 +239,13 @@ class DataLoader(DataLoaderBase):
         test_tensor = torch.LongTensor(self.test_list)
         self.test_tensor = test_tensor.reshape([(test_tensor_len//self.max_sample_length),self.max_sample_length])
         
-        print('data processed')
-        pass
-
-
-    def get_labels_from_ner_df(self, df):
-        #takes a dataframe and returns a list of all ner labels (devidable by the max_sample_length)
-        lst = []
-        print(len(df))
-        for i in range(1,len(df)):
-            instance = df.iloc[i]
-            instance_ner = self.ner_df.loc[(self.ner_df['sentence_id'] == instance['sentence_id']) & (self.ner_df['char_start_id'] == instance['char_start_id']) & (self.ner_df['char_end_id'] == instance['char_end_id'])]
-            label = instance_ner.iloc[0]['ner_id']
-            lst.append(label)
-        lst = lst[:(len(lst)-len(lst)%self.max_sample_length)]
-        return lst, len(lst)
-    
-    
-    def get_y(self):
-        # Should return a tensor containing the ner labels for all samples in each split.
-        # the tensors should have the following following dimensions:
-        # (NUMBER_SAMPLES, MAX_SAMPLE_LENGTH)
-        # NOTE! the labels for each split should be on the GPU
-       
         return self.train_tensor, self.val_tensor, self.test_tensor
 
 
     def plot_split_ner_distribution(self):
         # should plot a histogram displaying ner label counts for each split
+        self.get_y()
+        
         train_c = Counter(self.train_list)
         val_c = Counter(self.val_list)
         test_c = Counter(self.test_list)
