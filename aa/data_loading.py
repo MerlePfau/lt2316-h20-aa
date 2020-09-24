@@ -77,6 +77,7 @@ class DataLoader(DataLoaderBase):
         self.id2word = {}
         self.id2ner = {}
         self.id2ner[0] = 'None'
+        punct = ['.',',',':',';','!','?']
         ner_id = 1
         word_id = 1
         i = 1
@@ -88,7 +89,7 @@ class DataLoader(DataLoaderBase):
                 split = 'test'
             else:
                 split = 'train'
-            #access html data
+            #access xml data
             tree = ET.parse(filename)
             root = tree.getroot()
             for elem in root:
@@ -102,12 +103,9 @@ class DataLoader(DataLoaderBase):
                     #get char start and end by looping htrough sentence
                     char_start = k
                     char_end = k + len(token)-1
-                    #clean tokens from , and . and update char end
+                    #clean tokens from punctuation and update char end
                     if token:
-                        if token[-1] == '.':
-                            token = token[:-1]
-                            char_end -= 1
-                        elif token[-1] == '.':
+                        if token[-1] in punct:
                             token = token[:-1]
                             char_end -= 1
                     k += len(token)+1
