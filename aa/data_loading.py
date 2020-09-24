@@ -145,8 +145,8 @@ class DataLoader(DataLoaderBase):
                                 self.ner_df.loc[j] = [sent_id, label, char_start, char_end]
                                 j += 1
                                 
-            #if i > 1000:
-            #    break
+            if i > 1000:
+                break
         print('data read')                                                    
         pass
         
@@ -188,10 +188,6 @@ class DataLoader(DataLoaderBase):
         self.fillout_frames(filename_list)
         self.vocab = list(self.id2word.values())
         
-        #create vocabularies
-        #self.word_map_df()
-        #self.ner_map_df()
-        
         #set maximum sample length
         self.max_sample_length = 50
         
@@ -227,6 +223,8 @@ class DataLoader(DataLoaderBase):
         # (NUMBER_SAMPLES, MAX_SAMPLE_LENGTH)
         # NOTE! the labels for each split should be on the GPU
         
+        device = torch.device('cuda:1')
+        
         #prepare data for plotting and labeling
         #split the data_df into three sub df: train, val and test
         val_df = self.data_df.loc[self.data_df['split'] == 'val']
@@ -236,17 +234,20 @@ class DataLoader(DataLoaderBase):
         #get labels for each of the split dfs and shape into the correct dimensions
         self.train_list, train_tensor_len = self.get_labels_from_ner_df(train_df)
         train_tensor = torch.LongTensor(self.train_list)
-        self.train_tensor = train_tensor.reshape([(train_tensor_len//self.max_sample_length),self.max_sample_length])
+        self.train_tensor_y = train_tensor.reshape([(train_tensor_len//self.max_sample_length),self.max_sample_length])
+        self.train_tensor_y = self.train_tensor_y.to(device)
         
         self.val_list, val_tensor_len = self.get_labels_from_ner_df(val_df)
         val_tensor = torch.LongTensor(self.val_list)
-        self.val_tensor = val_tensor.reshape([(val_tensor_len//self.max_sample_length),self.max_sample_length])
+        self.val_tensor_y = val_tensor.reshape([(val_tensor_len//self.max_sample_length),self.max_sample_length])
+        self.val_tensor_y = self.val_tensor_y.to(device)
         
         self.test_list, test_tensor_len = self.get_labels_from_ner_df(test_df)
         test_tensor = torch.LongTensor(self.test_list)
-        self.test_tensor = test_tensor.reshape([(test_tensor_len//self.max_sample_length),self.max_sample_length])
+        self.test_tensor_y = test_tensor.reshape([(test_tensor_len//self.max_sample_length),self.max_sample_length])
+        self.test_tensor_y = self.test_tensor_y.to(device)
         
-        return self.train_tensor, self.val_tensor, self.test_tensor
+        return self.train_tensor_y, self.val_tensor_y, self.test_tensor_y
 
 
     def plot_split_ner_distribution(self):
