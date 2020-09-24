@@ -39,8 +39,6 @@ class DataLoaderBase:
         # simply picks a random sample from the dataset, labels and formats it.
         # Meant to be used as a naive check to see if the data looks ok
         sentence_id = random.choice(list(self.data_df["sentence_id"].unique()))
-        #print(self.data_df.loc[self.data_df['sentence_id'] == sentence_id])
-        #print(self.ner_df.loc[self.ner_df['sentence_id'] == sentence_id])
         sample_ners = self.ner_df[self.ner_df["sentence_id"]==sentence_id]
         sample_tokens = self.data_df[self.data_df["sentence_id"]==sentence_id]
 
@@ -99,15 +97,26 @@ class DataLoader(DataLoaderBase):
                 #get tokens from sentence
                 tokens = elem.get("text")
                 tokens_list = tokens.split(" ")
+                k = 0
                 for token in tokens_list:
-                    token = token.replace(',','')
-                    token = token.replace('.','')
+                    #get char start and end by looping htrough sentence
+                    char_start = k
+                    char_end = k + len(token)-1
+                    #clean tokens from , and . and update char end
+                    if token:
+                        if token[-1] == '.':
+                            token = token[:-1]
+                            char_end -= 1
+                        elif token[-1] == '.':
+                            token = token[:-1]
+                            char_end -= 1
+                    k += len(token)+1
                     #update word id dict
                     if token not in self.id2word.values():
                         self.id2word[word_id] = token
                         word_id += 1
-                    char_start = tokens.find(token)
-                    char_end = char_start + len(token) - 1
+                    #char_start = tokens.find(token)
+                    #char_end = char_start + len(token) - 1
                     token_id = self.get_id(token, self.id2word)
                     #add row in data_df for current token
                     self.data_df.loc[i] = [sent_id, token_id, char_start, char_end, split]
@@ -138,8 +147,8 @@ class DataLoader(DataLoaderBase):
                                 self.ner_df.loc[j] = [sent_id, label, char_start, char_end]
                                 j += 1
                                 
-            if i > 1000:
-                break
+            #if i > 1000:
+            #    break
         print('data read')                                                    
         pass
         
@@ -199,16 +208,16 @@ class DataLoader(DataLoaderBase):
         pass
 
 
-    def get_labels_from_ner_df(self, df):
+    def get_labels_from_ner_df(self, df): 
         #takes a dataframe and returns a list of all ner labels (devidable by the max_sample_length)
         lst = []
-        for i in range(1,len(df)):
-            instance = df.iloc[i]
-            if ((self.ner_df['sentence_id'] == instance['sentence_id']) & (self.ner_df['char_start_id'] == instance['char_start_id']) & (self.ner_df['char_end_id'] == instance['char_end_id'])).any():                         
-                line_label = self.ner_df.loc[(self.ner_df['sentence_id'] == instance['sentence_id']) & (self.ner_df['char_start_id'] == instance['char_start_id']) & (self.ner_df['char_end_id'] == instance['char_end_id'])]
+        
+        for i, instance in df.iterrows():
+            label = 0
+            sentence_ner = self.ner_df.loc[self.ner_df['sentence_id'] == instance['sentence_id']]
+            if (((sentence_ner['char_start_id'] >= instance['char_start_id']) & (sentence_ner['char_end_id'] <= instance['char_end_id']))).any():                         
+                line_label = sentence_ner.loc[(sentence_ner['char_start_id'] >= instance['char_start_id']) & (sentence_ner['char_end_id'] <= instance['char_end_id'])]
                 label = line_label.iloc[0]['ner_id']
-            else:
-                label = 0
             lst.append(label)
         lst = lst[:(len(lst)-len(lst)%self.max_sample_length)]
         return lst, len(lst)
