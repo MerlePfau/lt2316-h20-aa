@@ -13,7 +13,7 @@ def shape_data(df, device, max_sample_length):
     df.drop(df.tail(n).index,inplace=True)
     tensor = df_to_tensor(df)
     tensor_len = tensor.shape[0] - (tensor.shape[0]//max_sample_length)
-    tensor = tensor.reshape([(tensor.shape[0]//max_sample_length),max_sample_length,5])
+    tensor = tensor.reshape([(tensor.shape[0]//max_sample_length),max_sample_length,6])
     return tensor
 
 
@@ -28,7 +28,7 @@ def extract_features(data:pd.DataFrame, max_sample_length:int, id2word, device):
    
 
     #turning the df into a feature df
-    for i in range(1, len(data)+1):
+    for i in range(1, len(data)-1):
         #first features: left and right neighbour in the sentence
         data.at[i, 'neighbour_l'] = 0
         token_id = data.loc[i, "token_id"]   
@@ -38,27 +38,29 @@ def extract_features(data:pd.DataFrame, max_sample_length:int, id2word, device):
                 neighbour_l = data.loc[(i-1), "token_id"]
                 data.at[i, 'neighbour_l'] = neighbour_l 
         if i < len(data):
-            if (data.loc[(i), "sentence_id"] == data.loc[(i+1), "sentence_id"]):
+            if (data.loc[i, "sentence_id"] == data.loc[(i+1), "sentence_id"]):
                 neighbour_r = data.loc[(i+1), "token_id"]
                 data.at[i, 'neighbour_r'] = neighbour_r
         
         #second and third feature: first letter / whole word is capitalized 
+        #fourth feature: word is alphabetical
         token = id2word[token_id]
         if token:
             data.at[i, "capital"] = 0
             data.at[i, "all_caps"] = 0
+            data.at[i, "not_alpha"] = 0
             if token[0].isupper():
                 data.at[i, "capital"] = 1
             if token.isupper():
-                data.at[i, "all_caps"] = 1                     
+                data.at[i, "all_caps"] = 1
+            if token.isalpha():
+                data.at[i, "not_alpha"] = 1
                                 
-        #fourth feature: word length
+        #fifth feature: word length
         data.at[i, "word_len"] = data.loc[i, "char_end_id"] - data.loc[i, "char_start_id"]
     
     #remove obsolete columns
     data = data.drop(["token_id", "sentence_id", "char_end_id", "char_start_id"], axis=1)
-    
-    print(data)
     
     #create tensors for each of the splits
     train_df = data.loc[data['split'] == 'train']
