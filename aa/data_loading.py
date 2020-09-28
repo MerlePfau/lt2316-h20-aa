@@ -8,7 +8,9 @@ from glob import glob
 import xml.etree.ElementTree as ET
 import matplotlib.pyplot as plt
 from collections import Counter
-import re
+from matplotlib_venn import venn2, venn2_circles, venn2_unweighted
+from matplotlib_venn import venn3, venn3_circles
+
 
 
 class DataLoaderBase:
@@ -69,9 +71,12 @@ class DataLoader(DataLoaderBase):
         
     
     def fillout_frames(self, filename_list):
-        print('reading in data...')
         #reads in all the xml files and fills the two dataframes with the corresponding values
         #also creates mapping from tokens and ners to ids
+        
+        #initiate lists
+        data_list = [["sentence_id", "token_id", "char_start_id", "char_end_id", "split"]]
+        ner_list = [["sentence_id", "ner_id", "char_start_id", "char_end_id"]]
         
         #initiate word and ner mapping dictionaries
         self.id2word = {}
@@ -80,15 +85,13 @@ class DataLoader(DataLoaderBase):
         punct = ['.',',',':',';','!','?']
         ner_id = 1
         word_id = 1
-        i = 1
-        j = 1
         #start reading in the files
         for filename in filename_list:
-            #get split from pathname
+            #get split from pathname and create validation set
             if 'Test' in str(filename):
                 split = 'test'
             else:
-                split = 'train'
+                split = random.choices(["train", "val"], weights = (75, 25), k = 1)[0]  # split train into train 
             #access xml data
             tree = ET.parse(filename)
             root = tree.getroot()
@@ -97,6 +100,7 @@ class DataLoader(DataLoaderBase):
                 sent_id = elem.get("id")
                 #get tokens from sentence
                 tokens = elem.get("text")
+                tokens = tokens.replace(";"," ")
                 tokens_list = tokens.split(" ")
                 k = 0
                 for token in tokens_list:
@@ -113,12 +117,9 @@ class DataLoader(DataLoaderBase):
                     if token not in self.id2word.values():
                         self.id2word[word_id] = token
                         word_id += 1
-                    #char_start = tokens.find(token)
-                    #char_end = char_start + len(token) - 1
                     token_id = self.get_id(token, self.id2word)
-                    #add row in data_df for current token
-                    self.data_df.loc[i] = [sent_id, token_id, char_start, char_end, split]
-                    i += 1
+                    #add list to data_list for current token
+                    data_list.append([sent_id, token_id, char_start, char_end, split])
                 for subelem in elem:
                     if subelem.tag == "entity":
                         #get ner
@@ -133,8 +134,7 @@ class DataLoader(DataLoaderBase):
                             char_start, char_end = subelem.get("charOffset").split("-")
                             char_start, char_end = int(char_start), int(char_end)
                             #add row in data_df for current entity
-                            self.ner_df.loc[j] = [sent_id, label, char_start, char_end]
-                            j += 1
+                            ner_list.append([sent_id, label, char_start, char_end])
                         #if more than one mention of an entity, split into several lines
                         else:
                             occurences = subelem.get("charOffset").split(";")
@@ -142,12 +142,11 @@ class DataLoader(DataLoaderBase):
                                 char_start, char_end = occurence.split("-")
                                 char_start, char_end = int(char_start), int(char_end)
                                 #add row in data_df for current entity
-                                self.ner_df.loc[j] = [sent_id, label, char_start, char_end]
-                                j += 1
+                                ner_list.append([sent_id, label, char_start, char_end])
                                 
-            if i > 1000:
-                break
-        print('data read')                                                    
+        self.data_df = pd.DataFrame(data_list[1:], columns=data_list[0])
+        self.ner_df = pd.DataFrame(ner_list[1:], columns=ner_list[0])           
+        
         pass
         
         
@@ -156,31 +155,20 @@ class DataLoader(DataLoaderBase):
         for ids, words in dct.items():
             if words == token:
                 return ids
+
     
-    
-    def create_val_set(self):
-        print('creating validation set...')
-        #takes 25% of the training set as the validation set
-        train_len = len(self.data_df.loc[self.data_df['split'] == 'train'])
-        val_len = int(train_len*0.25)
-        i = 0
-        while i < val_len:
-            rand = random.choice(self.data_df.index)
-            if self.data_df.loc[rand, 'split'] == 'train':
-                self.data_df.at[rand, 'split'] = 'val'
-                i += 1
-        print('validation set ready')
-        pass
+    def get_max_length(self):
+        #gets the length of the longest sentence 
+        sentences = list(self.data_df["sentence_id"])
+        word_count = Counter(sentences)
+        max_l = max(list(word_count.values()))
+                
+        return max_l
     
     
     def _parse_data(self,data_dir):
-        print('processing data')
         # Should parse data in the data_dir, create two dataframes with the format specified in
         # __init__(), and set all the variables so that run.ipynb run as it is.
-
-        #initiate the dataframes with columns
-        self.data_df = pd.DataFrame(columns = ["sentence_id", "token_id", "char_start_id", "char_end_id", "split"])
-        self.ner_df = pd.DataFrame(columns = ["sentence_id", "ner_id", "char_start_id", "char_end_id"])
         
         #read in data
         all_files = Path(data_dir)
@@ -189,32 +177,54 @@ class DataLoader(DataLoaderBase):
         self.vocab = list(self.id2word.values())
         
         #set maximum sample length
-        self.max_sample_length = 50
-        
-        #25% of train test as val set
-        self.create_val_set()
-        
-        #shuffle
-        #self.data_df = self.data_df.sample(frac=1).reset_index(drop=True)
-        #self.ner_df = self.ner_df.sample(frac=1).reset_index(drop=True)
-                
-        print('data processed')
+        self.max_sample_length = self.get_max_length()
+
         pass
 
+    
+    def padding(self, lst):
+        sample_len = len(lst)
+        diff = self.max_sample_length - sample_len
+        padding = diff * [-1]
+        lst.extend(padding)
 
+        return lst[:self.max_sample_length]
+
+    
     def get_labels_from_ner_df(self, df): 
         #takes a dataframe and returns a list of all ner labels (devidable by the max_sample_length)
-        lst = []
+    
+        label_list = []
+        all_labels = []
         
-        for i, instance in df.iterrows():
+        sent_ids = [s for s in df["sentence_id"]]
+        start_ids = [s for s in df["char_start_id"]]
+        end_ids = [s for s in df["char_end_id"]]
+        id_tuples = list(zip(sent_ids, start_ids, end_ids))
+        
+        label_sent_ids = [s for s in self.ner_df["sentence_id"]]
+        label_start_ids = [s for s in self.ner_df["char_start_id"]]
+        label_end_ids = [s for s in self.ner_df["char_end_id"]]
+        labels = [s for s in self.ner_df["ner_id"]]
+        label_tuples = list(zip(label_sent_ids, label_start_ids, label_end_ids))
+        
+        sentence = 'x'
+        sent_labels = []
+        for t in id_tuples:
             label = 0
-            sentence_ner = self.ner_df.loc[self.ner_df['sentence_id'] == instance['sentence_id']]
-            if (((sentence_ner['char_start_id'] >= instance['char_start_id']) & (sentence_ner['char_end_id'] <= instance['char_end_id']))).any():                         
-                line_label = sentence_ner.loc[(sentence_ner['char_start_id'] >= instance['char_start_id']) & (sentence_ner['char_end_id'] <= instance['char_end_id'])]
-                label = line_label.iloc[0]['ner_id']
-            lst.append(label)
-        lst = lst[:(len(lst)-len(lst)%self.max_sample_length)]
-        return lst, len(lst)
+            if t in label_tuples:
+                label = labels[label_tuples.index(t)]
+            if t[0] == sentence:
+                sent_labels.append(label)
+            else: 
+                padded_labels = self.padding(sent_labels)
+                label_list.append(padded_labels)
+                sent_labels = [label]
+                sentence = t[0]
+            if label != 0:
+                all_labels.append(label) 
+               
+        return label_list, all_labels
     
     
     def get_y(self):
@@ -232,19 +242,16 @@ class DataLoader(DataLoaderBase):
         test_df = self.data_df.loc[self.data_df['split'] == 'test']
         
         #get labels for each of the split dfs and shape into the correct dimensions
-        self.train_list, train_tensor_len = self.get_labels_from_ner_df(train_df)
-        train_tensor = torch.LongTensor(self.train_list)
-        self.train_tensor_y = train_tensor.reshape([(train_tensor_len//self.max_sample_length),self.max_sample_length])
+        self.train_list, self.all_labels_train = self.get_labels_from_ner_df(train_df)
+        self.train_tensor_y = torch.LongTensor(self.train_list)
         self.train_tensor_y = self.train_tensor_y.to(device)
         
-        self.val_list, val_tensor_len = self.get_labels_from_ner_df(val_df)
-        val_tensor = torch.LongTensor(self.val_list)
-        self.val_tensor_y = val_tensor.reshape([(val_tensor_len//self.max_sample_length),self.max_sample_length])
+        self.val_list, self.all_labels_val = self.get_labels_from_ner_df(val_df)
+        self.val_tensor_y = torch.LongTensor(self.val_list)
         self.val_tensor_y = self.val_tensor_y.to(device)
         
-        self.test_list, test_tensor_len = self.get_labels_from_ner_df(test_df)
-        test_tensor = torch.LongTensor(self.test_list)
-        self.test_tensor_y = test_tensor.reshape([(test_tensor_len//self.max_sample_length),self.max_sample_length])
+        self.test_list, self.all_labels_test = self.get_labels_from_ner_df(test_df)
+        self.test_tensor_y = torch.LongTensor(self.test_list)
         self.test_tensor_y = self.test_tensor_y.to(device)
         
         return self.train_tensor_y, self.val_tensor_y, self.test_tensor_y
@@ -254,21 +261,38 @@ class DataLoader(DataLoaderBase):
         # should plot a histogram displaying ner label counts for each split
         self.get_y()
         
-        train_c = Counter(self.train_list)
-        val_c = Counter(self.val_list)
-        test_c = Counter(self.test_list)
+        train_c = Counter(self.all_labels_train)
+        val_c = Counter(self.all_labels_val)
+        test_c = Counter(self.all_labels_test)
         data = [train_c, val_c, test_c]
         print(data)
         to_plot= pd.DataFrame(data,index=['train', 'val', 'test'])
-        to_plot.plot(kind='bar')
+        to_plot.plot.bar(figsize=(5,10))
         print(self.id2ner)
         plt.show()
+
         pass
 
 
     def plot_sample_length_distribution(self):
         # FOR BONUS PART!!
         # Should plot a histogram displaying the distribution of sample lengths in number tokens
+        counter_dict= {}
+        sentence_ids = list(self.data_df["sentence_id"].unique())
+        for sentence in sentence_ids:
+            sub_df = self.data_df.loc[self.data_df['sentence_id'] == sentence]
+            count = len(sub_df.index)
+            if count not in counter_dict.keys():
+                counter_dict[count] = 1
+            else:
+                counter_dict[count] += 1      
+        keys = list(counter_dict.keys())
+        data = counter_dict.values()
+        keys.sort()
+        to_plot= pd.DataFrame(data,index=keys)
+        to_plot.plot.bar(figsize=(20,5))
+        plt.show() 
+        
         pass
 
 
@@ -276,13 +300,59 @@ class DataLoader(DataLoaderBase):
         # FOR BONUS PART!!
         # Should plot a histogram displaying the distribution of number of NERs in sentences
         # e.g. how many sentences has 1 ner, 2 ner and so on
+        counter_dict= {}
+        sentence_ids = list(self.data_df["sentence_id"].unique())
+        for sentence_id in sentence_ids:
+            sub_ner_df = self.ner_df.loc[self.ner_df['sentence_id'] == sentence_id]
+            count = len(sub_ner_df.index)
+            if count not in counter_dict.keys():
+                counter_dict[count] = [sentence_id]
+            else:
+                if sentence_id not in counter_dict[count]:
+                    counter_dict[count].append(sentence_id)
+        keys = list(counter_dict.keys())
+        data = [len(sentences) for sentences in counter_dict.values()]
+        keys.sort()
+        to_plot= pd.DataFrame(data,index=keys)
+        to_plot.plot.bar(figsize=(10,5))
+        plt.show()
+                                         
         pass
 
 
     def plot_ner_cooccurence_venndiagram(self):
         # FOR BONUS PART!!
         # Should plot a ven-diagram displaying how the ner labels co-occur
+        
+        counter_dict= {}
+        sentence_ids = list(self.data_df["sentence_id"].unique())
+        for sentence_id in sentence_ids:
+            if sentence_id not in counter_dict.keys():
+                counter_dict[sentence_id] = {}
+                counter_dict[sentence_id][1] = 0
+                counter_dict[sentence_id][2] = 0
+                counter_dict[sentence_id][3] = 0
+                counter_dict[sentence_id][4] = 0
+                sub_ner_df = self.ner_df.loc[self.ner_df['sentence_id'] == sentence_id]
+                if not sub_ner_df.empty:
+                    for j in range(len(sub_ner_df.index)):
+                        ner = sub_ner_df.iloc[j]['ner_id']
+                        counter_dict[sentence_id][ner] += 1
+        self.counter_dict = counter_dict
+        list_dict = {}
+        for label in [1,2,3,4]:
+            for sentence, id_dict in self.counter_dict.items():
+                for label, count in id_dict.items():
+                    if self.id2ner[label] not in list_dict.keys():
+                        list_dict[self.id2ner[label]] = []
+                    if count >= 1:
+                        list_dict[self.id2ner[label]].append(sentence)
+        list_1 = list_dict['drug'] 
+        list_1.extend(list_dict['drug_n'])
+        list_2 = list_dict['group']
+        list_3 = list_dict['brand']
+        venn3([set(list_1), set(list_2), set(list_3)], set_labels = ('Drug', 'Group', 'Brand'))                    
+                        
         pass
-
-
-
+    
+    
