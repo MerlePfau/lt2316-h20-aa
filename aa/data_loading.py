@@ -86,7 +86,7 @@ class DataLoader(DataLoaderBase):
         ner_id = 1
         word_id = 1
         #start reading in the files
-        for filename in filename_list:
+        for filename in filename_list[:1000]:
             #get split from pathname and create validation set
             if 'Test' in str(filename):
                 split = 'test'
@@ -253,6 +253,8 @@ class DataLoader(DataLoaderBase):
         self.test_list, self.all_labels_test = self.get_labels_from_ner_df(test_df)
         self.test_tensor_y = torch.LongTensor(self.test_list)
         self.test_tensor_y = self.test_tensor_y.to(device)
+        
+        print(self.train_tensor_y.shape)
         
         return self.train_tensor_y, self.val_tensor_y, self.test_tensor_y
 
