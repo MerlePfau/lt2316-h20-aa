@@ -26,8 +26,7 @@ The last part of part 1 was to plot a histogram displaying ner label counts for 
 In part 2 we were asked to extract some features from our collected data. 
 I decided to use 5 features, with 2 of them being the left and right neighbour of the word, if there was one in the same sentence. The context of a word tells a lot about the meaning, so I thought that these features would be useful in performing the NER task later on.
 I also used the word length and capitalization of the token as features. I noticed the drug names were rather long compared to the other words of the corpus, and quite a lot of them, especially the brand names had a capitalized first letter or were all caps. Some also contained numbers or special characters, so I added a feature for whether the word consisted of only alphabetical characters. Therefore I think these features contain valuable information for the task.
-After saving all feature values in the df, i dropped all now obsolete columns and devided the df into the splits.
-I turned all three dfs into tensors and again, made sure the length was devidable by the max_sample_length to match my earlier decision, before reshaping it into the dimensions (NUMBER_SAMPLES, MAX_SAMPLE_LENGTH, FEATURE_DIM).
+For each of the splits I looped through a list of tuples for each row of the df. I filtered out the features and created lists of features for each sentence. I then added padding with lists of [-1] labels to the end. I turned the overall list of lists into a tensor and returned that.
 I saved the tensors to the gpu and returned them. 
 
 

@@ -3,7 +3,7 @@
 import pandas as pd
 import torch
 
-def get_features(split, max_sample_length)
+def get_features(data, max_sample_length, id2word):
     
     sent_ids = [s for s in data["sentence_id"]]
     token_ids = [s for s in data["token_id"]]
@@ -30,7 +30,7 @@ def get_features(split, max_sample_length)
         if i != 0:
             if all_rows[i-1][0] == sent_id:
                 n_l = all_rows[i-1][1]
-        if i < len(data):
+        if i < len(all_rows)-1:
             if all_rows[i+1][0] == sent_id:
                 n_r = all_rows[i+1][1]
         #second and third feature: first letter / whole word is capitalized 
@@ -52,14 +52,21 @@ def get_features(split, max_sample_length)
 
         word_list = [n_l, n_r, capital, all_caps, not_alpha]
         
-
-        if sent_id = all_rows[i-1][0]:
-            sent_list.append(word_list)
+        if i < len(all_rows)-1:
+            if sent_id == all_rows[i+1][0]:
+                sent_list.append(word_list)
+            else:
+                len_sent = len(sent_list)
+                diff = max_sample_length - len_sent
+                padding = diff * [[-1] * len(word_list)]
+                sent_list.extend(padding)
+                all_list.append(sent_list)
+                sent_list = []
+                sent_list.append(word_list)
         else:
             len_sent = len(sent_list)
             diff = max_sample_length - len_sent
-            padding = [diff * [[-1] * len(word_list)]]
-            print(padding)
+            padding = diff * [[-1] * len(word_list)]
             sent_list.extend(padding)
             all_list.append(sent_list)
             sent_list = []
@@ -78,18 +85,16 @@ def extract_features(data:pd.DataFrame, max_sample_length:int, id2word, device):
     # NOTE! Feel free to add any additional arguments to this function. If so
     # document these well and make sure you dont forget to add them in run.ipynb
    
-
     train_df = data.loc[data['split'] == 'train']
-    train_tensor = get_features(train_df, max_sample_length)
+    train_tensor = get_features(train_df, max_sample_length, id2word)
     train_tensor = train_tensor.to(device)
     
     val_df = data.loc[data['split'] == 'val']
-    val_tensor = get_features(val_df, max_sample_length)
+    val_tensor = get_features(val_df, max_sample_length, id2word)
     val_tensor = val_tensor.to(device)
     
     test_df = data.loc[data['split'] == 'test']
-    test_tensor = get_features(test_df, max_sample_length)
+    test_tensor = get_features(test_df, max_sample_length, id2word)
     test_tensor = test_tensor.to(device)  
 
-       
     return train_tensor, val_tensor, test_tensor
