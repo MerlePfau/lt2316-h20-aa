@@ -8,8 +8,8 @@ from glob import glob
 import xml.etree.ElementTree as ET
 import matplotlib.pyplot as plt
 from collections import Counter
-from matplotlib_venn import venn2, venn2_circles, venn2_unweighted
-from matplotlib_venn import venn3, venn3_circles
+from venn import venn
+from nltk.tokenize import RegexpTokenizer
 
 
 
@@ -42,7 +42,9 @@ class DataLoaderBase:
         # Meant to be used as a naive check to see if the data looks ok
         sentence_id = random.choice(list(self.data_df["sentence_id"].unique()))
         sample_ners = self.ner_df[self.ner_df["sentence_id"]==sentence_id]
+        print(sample_ners)
         sample_tokens = self.data_df[self.data_df["sentence_id"]==sentence_id]
+        print(sample_tokens)
 
         decode_word = lambda x: self.id2word[x]
         sample_tokens["token"] = sample_tokens.loc[:,"token_id"].apply(decode_word)
@@ -82,7 +84,7 @@ class DataLoader(DataLoaderBase):
         self.id2word = {}
         self.id2ner = {}
         self.id2ner[0] = 'None'
-        punct = ['.',',',':',';','!','?']
+        punct = "-,.?!:;"
         ner_id = 1
         word_id = 1
         #start reading in the files
@@ -99,27 +101,25 @@ class DataLoader(DataLoaderBase):
                 #get sent_id
                 sent_id = elem.get("id")
                 #get tokens from sentence
-                tokens = elem.get("text")
-                tokens = tokens.replace(";"," ")
-                tokens_list = tokens.split(" ")
-                k = 0
-                for token in tokens_list:
-                    #get char start and end by looping htrough sentence
-                    char_start = k
-                    char_end = k + len(token)-1
-                    #clean tokens from punctuation and update char end
-                    if token:
-                        if token[-1] in punct:
-                            token = token[:-1]
-                            char_end -= 1
-                    k += len(token)+1
-                    #update word id dict
+                sentence = elem.get("text")
+                sentence = sentence.replace(";"," ")
+                sentence = sentence.replace("/"," ")
+
+                tokenizer = RegexpTokenizer("\s|:|;", gaps=True)
+                tokenized = tokenizer.tokenize(sentence.lower())
+                tokenized = [word.strip(punct) if word[-1] in punct else word for word in tokenized]
+                span = list(tokenizer.span_tokenize(sentence)) 
+                char_ids = []
+                for tpl in span:
+                    char_ids.append((tpl[0], (tpl[1]-1)))
+                for i, token in enumerate(tokenized): # creating data_df_list, one_sentence
                     if token not in self.id2word.values():
                         self.id2word[word_id] = token
                         word_id += 1
                     token_id = self.get_id(token, self.id2word)
-                    #add list to data_list for current token
-                    data_list.append([sent_id, token_id, char_start, char_end, split])
+                    word_tpl = (sent_id, token_id, int(char_ids[i][0]), int(char_ids[i][1]), split) # one row in data_df 
+                    data_list.append(word_tpl)
+                               
                 for subelem in elem:
                     if subelem.tag == "entity":
                         #get ner
@@ -208,7 +208,10 @@ class DataLoader(DataLoaderBase):
         labels = [s for s in self.ner_df["ner_id"]]
         label_tuples = list(zip(label_sent_ids, label_start_ids, label_end_ids))
         
-        sentence = 'x'
+        if sent_ids:
+            sentence = sent_ids[0]
+        else: 
+            sentence = 0
         sent_labels = []
         for t in id_tuples:
             label = 0
@@ -348,10 +351,10 @@ class DataLoader(DataLoaderBase):
                     if count >= 1:
                         list_dict[self.id2ner[label]].append(sentence)
         list_1 = list_dict['drug'] 
-        list_1.extend(list_dict['drug_n'])
-        list_2 = list_dict['group']
-        list_3 = list_dict['brand']
-        venn3([set(list_1), set(list_2), set(list_3)], set_labels = ('Drug', 'Group', 'Brand'))                    
+        list_2 = list_dict['drug_n']
+        list_3 = list_dict['group']
+        list_4 = list_dict['brand']
+        venn({"drug": set(list_1), "drug_n": set(list_2), "group": set(list_3), "brand": set(list_4)})               
                         
         pass
     
